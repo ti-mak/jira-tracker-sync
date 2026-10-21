@@ -4,6 +4,8 @@
  * Every 5 minutes: reads the card links above the red line on the "Timak" tab,
  * asks Jira for each card's status + flag, and updates ONLY column I (Current Status).
  * Nothing else is touched: no pod, points, Final Status, Comments, or anything at/below the red line.
+ * It also processes the hidden "WLD Queue" tab: uploads queued Jira screenshots to the client's
+ * WLD screenshots folder and adds the Drive link to the WLD row (see processScreenshotQueue_).
  *
  * One-time setup:
  *  1. Project Settings (gear icon) → Script Properties → add:
@@ -97,8 +99,73 @@ function syncStatuses() {
     });
     if (changed) console.log('Updated ' + changed + ' status cell(s).');
   } finally {
+    try {
+      processScreenshotQueue_();
+    } catch (e) {
+      console.error('Screenshot queue: ' + e);
+    }
     lock.releaseLock();
   }
+}
+
+/**
+ * WLD screenshot queue ("WLD Queue" tab in the tracker spreadsheet, can be hidden).
+ * Columns: A Card | B Jira attachment ID | C File name | D Screenshots folder ID |
+ *          E WLD spreadsheet ID | F WLD tab | G WLD row | H Status | I Drive link | J Updated
+ * For each "Pending" row: downloads the attachment from Jira, saves it in the client's
+ * screenshots folder, appends the Drive link to column F of that WLD row, marks the row Done.
+ */
+const QUEUE_SHEET = 'WLD Queue';
+const WLD_EXPLANATION_COL = 6; // F – Expanded Explanation
+
+/** Run manually from the editor to process the queue right away. */
+function processScreenshotQueue() {
+  processScreenshotQueue_();
+}
+
+function processScreenshotQueue_() {
+  const queue = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID).getSheetByName(QUEUE_SHEET);
+  if (!queue || queue.getLastRow() < 2) return;
+  const data = queue.getRange(2, 1, queue.getLastRow() - 1, 10).getValues();
+
+  data.forEach((r, i) => {
+    const [card, attachmentId, fileName, folderId, wldId, wldTab, wldRow, status] = r;
+    if (String(status).trim() !== 'Pending') return;
+    const qRow = i + 2;
+    try {
+      const res = UrlFetchApp.fetch(CONFIG.JIRA_BASE + '/rest/api/3/attachment/content/' + attachmentId, {
+        headers: { Authorization: jiraAuth_() },
+        followRedirects: true,
+        muteHttpExceptions: true,
+      });
+      if (res.getResponseCode() !== 200) {
+        throw new Error('Jira ' + res.getResponseCode() + ' downloading attachment ' + attachmentId);
+      }
+      const blob = res.getBlob().setName(fileName || (card + ' screenshot.png'));
+      const file = DriveApp.getFolderById(folderId).createFile(blob);
+      const link = 'https://drive.google.com/file/d/' + file.getId() + '/view?usp=drive_link';
+
+      const cell = SpreadsheetApp.openById(wldId).getSheetByName(wldTab).getRange(Number(wldRow), WLD_EXPLANATION_COL);
+      const text = String(cell.getValue());
+      if (text.indexOf(file.getId()) === -1) {
+        cell.setValue(text.replace(/\s+$/, '') + '\n\n' + link);
+      }
+
+      queue.getRange(qRow, 8, 1, 3).setValues([['Done', link, new Date()]]);
+      console.log('Screenshot added for ' + card + ': ' + link);
+    } catch (e) {
+      queue.getRange(qRow, 8, 1, 3).setValues([['Error: ' + e.message, '', new Date()]]);
+      console.error('Screenshot queue ' + card + ': ' + e);
+    }
+  });
+}
+
+function jiraAuth_() {
+  const props = PropertiesService.getScriptProperties();
+  const email = props.getProperty('JIRA_EMAIL');
+  const token = props.getProperty('JIRA_TOKEN');
+  if (!email || !token) throw new Error('Set JIRA_EMAIL and JIRA_TOKEN in Project Settings → Script Properties.');
+  return 'Basic ' + Utilities.base64Encode(email + ':' + token);
 }
 
 /** Flagged wins over the workflow status, except for finished/cancelled cards. */

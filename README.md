@@ -12,6 +12,11 @@ Every 5 minutes it reads the Jira card links above the "PLEASE DO NOT EDIT ABOVE
 
 Nothing else is touched: no pod, points, Final Status, Comments, or anything at/below the red line. Cells already marked **Removed** are left alone, and statuses not in the table are skipped.
 
+## WLD screenshot queue
+On the same 5-minute run, the script checks a **WLD Queue** tab in the tracker spreadsheet (it can be hidden). Columns: Card, Jira attachment ID, File name, Screenshots folder ID, WLD spreadsheet ID, WLD tab, WLD row, Status, Drive link, Updated.
+
+For each row with Status `Pending`, it downloads the attachment from Jira, saves it in the screenshots folder, appends the Drive link to column F (Expanded Explanation) of that WLD row, and sets Status to `Done` (or `Error: ...`). Run `processScreenshotQueue()` to process it immediately.
+
 ## Setup
 1. Create a Jira API token at https://id.atlassian.com/manage-profile/security/api-tokens.
 2. At https://script.google.com, signed in with the Google account that can open the tracker, create a new project and paste in `Code.gs`.
