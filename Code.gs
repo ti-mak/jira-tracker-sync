@@ -148,7 +148,7 @@ function processScreenshotQueue_() {
       const cell = SpreadsheetApp.openById(wldId).getSheetByName(wldTab).getRange(Number(wldRow), WLD_EXPLANATION_COL);
       const text = String(cell.getValue());
       if (text.indexOf(file.getId()) === -1) {
-        cell.setValue(text.replace(/\s+$/, '') + '\n\n' + link);
+        setLinkedText_(cell, text.replace(/\s+$/, '') + '\n\n' + link);
       }
 
       queue.getRange(qRow, 8, 1, 3).setValues([['Done', link, new Date()]]);
@@ -158,6 +158,17 @@ function processScreenshotQueue_() {
       console.error('Screenshot queue ' + card + ': ' + e);
     }
   });
+}
+
+/** Writes text into a cell and makes every URL in it a clickable link. */
+function setLinkedText_(cell, text) {
+  const builder = SpreadsheetApp.newRichTextValue().setText(text);
+  const re = /https?:\/\/\S+/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    builder.setLinkUrl(m.index, m.index + m[0].length, m[0]);
+  }
+  cell.setRichTextValue(builder.build());
 }
 
 function jiraAuth_() {
